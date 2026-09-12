@@ -1,0 +1,13 @@
+# MATLAB temporary and generated build files
+*.asv
+*.m~
+*.autosave
+slprj/
+codegen/
+*.mex*
+.matlab_prefs/
+.matlab_temp/
+
+# Operating-system metadata
+Thumbs.db
+.DS_Store
