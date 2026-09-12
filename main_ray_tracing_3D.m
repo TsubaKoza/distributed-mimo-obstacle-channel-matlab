@@ -37,6 +37,9 @@ for m = 1:M
     for k = 1:K
         paths = pathInfo(m,k).paths;
         for l = 1:numel(paths)
+            if ~paths(l).isRetained
+                continue;
+            end
             switch paths(l).type
                 case "LoS"
                     h_LoS(:,m,k) = h_LoS(:,m,k)+paths(l).contribution;
@@ -60,15 +63,23 @@ linkGainDB = 10*log10(max(linkGain,realmin));
 hasLoS = false(M,K);
 numReflections = zeros(M,K);
 numDiffractions = zeros(M,K);
-pathCount = zeros(M,K);
+pathCountBeforePruning = zeros(M,K);
+pathCountAfterPruning = zeros(M,K);
+strongestPathPowerdB = -Inf(M,K);
 for m = 1:M
     for k = 1:K
         hasLoS(m,k) = pathInfo(m,k).hasLoS;
         numReflections(m,k) = pathInfo(m,k).numReflections;
         numDiffractions(m,k) = pathInfo(m,k).numDiffractions;
-        pathCount(m,k) = numel(pathInfo(m,k).paths);
+        pathCountBeforePruning(m,k) = ...
+            pathInfo(m,k).numPathsBeforePruning;
+        pathCountAfterPruning(m,k) = ...
+            pathInfo(m,k).numPathsAfterPruning;
+        strongestPathPowerdB(m,k) = ...
+            pathInfo(m,k).strongestPathPowerdB;
     end
 end
+pathCount = pathCountAfterPruning;
 outageMask = pathCount == 0;
 linkGainDB(outageMask) = NaN;
 
@@ -79,12 +90,15 @@ result = struct('scenario',scenario,'APpos',scenario.APpos, ...
     'h_diffraction',h_diffraction, ...
     'pathInfo',pathInfo,'hasLoS',hasLoS, ...
     'numReflections',numReflections,'numDiffractions',numDiffractions, ...
-    'pathCount',pathCount,'linkGain',linkGain, ...
+    'pathCount',pathCount,'pathCountBeforePruning',pathCountBeforePruning, ...
+    'pathCountAfterPruning',pathCountAfterPruning, ...
+    'strongestPathPowerdB',strongestPathPowerdB,'linkGain',linkGain, ...
     'linkGainDB',linkGainDB,'outageMask',outageMask,'cfg',cfg);
 
 assert(size(result.h_true,1)==cfg.N_AP && ...
     size(result.h_true,2)==M && size(result.h_true,3)==K);
 assert(isequal(size(result.pathCount),[M,K]));
+assert(all(pathCountAfterPruning <= pathCountBeforePruning,'all'));
 assert(~isfield(result,'p') && ~isfield(result,'Y') && ...
     ~isfield(result,'h_hat_LS') && ~isfield(result,'NMSE'));
 
@@ -114,13 +128,24 @@ fprintf('AP数: %d; UE数: %d; AP当たりアンテナ数: %d; 全リンク数: 
     M,K,cfg.N_AP,M*K);
 fprintf('LoSリンク数: %d; 反射path総数: %d; 回折path総数: %d\n', ...
     nnz(hasLoS),sum(numReflections(:)),sum(numDiffractions(:)));
+if cfg.enablePathPruning
+    fprintf(['Ray pruning: 有効; 閾値: %.3g dB; ' ...
+        '生成path総数: %d; 保持path総数: %d; 除外path総数: %d\n'], ...
+        cfg.pathPruningThresholddB,sum(pathCountBeforePruning,'all'), ...
+        sum(pathCountAfterPruning,'all'), ...
+        sum(pathCountBeforePruning-pathCountAfterPruning,'all'));
+else
+    fprintf('Ray pruning: 無効（生成された全pathを合成）\n');
+end
 fprintf('伝搬pathなし: %d / %dリンク\n',nnz(outageMask),M*K);
 
 selectedM = min(max(1,cfg.selectedAP),M);
 selectedK = min(max(1,cfg.selectedUE),K);
-selectedChannelTable = inspectRayTracingLink(result,selectedM,selectedK,false);
+[selectedChannelTable,selectedPruningTable] = ...
+    inspectRayTracingLink(result,selectedM,selectedK,false);
 result.selectedLink = struct('APIndex',selectedM,'UEIndex',selectedK, ...
-    'channelTable',selectedChannelTable);
+    'channelTable',selectedChannelTable, ...
+    'pruningTable',selectedPruningTable);
 
 if cfg.saveResults
     outputFile = fullfile(cfg.resultsDir,'ray_tracing_channels_3D_results.mat');

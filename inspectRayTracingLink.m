@@ -1,4 +1,4 @@
-function channelTable = inspectRayTracingLink(result,m,k,makePlot)
+function [channelTable,pruningTable] = inspectRayTracingLink(result,m,k,makePlot)
 %INSPECTRAYTRACINGLINK Display and return one link's channel components.
 if nargin < 4
     makePlot = true;
@@ -13,9 +13,9 @@ fprintf('AP位置: [%g %g %g] m\n',result.APpos(m,:));
 fprintf('UE位置: [%g %g %g] m\n',result.UEpos(k,:));
 info = result.pathInfo(m,k);
 fprintf(['LoS（直接波）: %s; 有効な1回反射path数: %d; ' ...
-    '有効な1回回折path数: %d; 合計path数: %d\n'], ...
+    '有効な1回回折path数: %d; 生成path数: %d; 保持path数: %d\n'], ...
     string(info.hasLoS),info.numReflections,info.numDiffractions, ...
-    numel(info.paths));
+    info.numPathsBeforePruning,info.numPathsAfterPruning);
 if ~info.hasLoS
     fprintf('LoSを遮断した遮蔽物番号: %s\n', ...
         mat2str(info.blockingObstacleIndices));
@@ -38,6 +38,44 @@ for l = 1:numel(info.paths)
         q.AoD.azimuth,q.AoD.elevation);
 end
 
+numPaths = numel(info.paths);
+pathIndex = (1:numPaths).';
+pathType = strings(numPaths,1);
+pathPowerdB = zeros(numPaths,1);
+relativePowerdB = zeros(numPaths,1);
+pruningResult = strings(numPaths,1);
+for l = 1:numPaths
+    pathType(l) = info.paths(l).type;
+    pathPowerdB(l) = info.paths(l).pathPowerdB;
+    relativePowerdB(l) = info.paths(l).relativePowerdB;
+    if info.paths(l).isRetained
+        pruningResult(l) = "retained";
+    else
+        pruningResult(l) = "removed";
+    end
+end
+pruningTable = table(pathIndex,pathType,pathPowerdB,relativePowerdB, ...
+    pruningResult,'VariableNames', ...
+    {'Path','Type','Power_dB','Relative_dB','Result'});
+fprintf('\n=== AP %d - UE %d Ray pruning ===\n',m,k);
+if numPaths == 0
+    fprintf('生成されたRayはありません。\n');
+else
+    disp(pruningTable);
+    fprintf('最強Ray: Path %d (%s), %.6g dB\n', ...
+        info.strongestPathIndex,info.strongestPathType, ...
+        info.strongestPathPowerdB);
+end
+if result.cfg.enablePathPruning
+    fprintf('閾値: %.6g dB（相対値 <= -%.6g dBを除外）\n', ...
+        result.cfg.pathPruningThresholddB, ...
+        result.cfg.pathPruningThresholddB);
+else
+    fprintf('Pruning: 無効（全Rayを保持）\n');
+end
+fprintf('Pruning前のpath数: %d\n',info.numPathsBeforePruning);
+fprintf('Pruning後のpath数: %d\n',info.numPathsAfterPruning);
+
 antennaIndex = (1:size(result.h_true,1)).';
 channelTable = table(antennaIndex,'VariableNames',{'AP_Antenna_Index'});
 if info.hasLoS
@@ -53,7 +91,7 @@ channelTable.h_true = result.h_true(:,m,k);
 
 fprintf('\n=== APアンテナ素子別チャネル成分（AP %d - UE %d）===\n',m,k);
 fprintf(['h_reflectionとh_diffractionは、それぞれ該当する全pathを' ...
-    '複素位相込みで合成した値です。\n']);
+    'pruning後に複素位相込みで合成した値です。\n']);
 disp(channelTable);
 if result.outageMask(m,k)
     fprintf('チャネル利得: 伝搬pathなし\n');

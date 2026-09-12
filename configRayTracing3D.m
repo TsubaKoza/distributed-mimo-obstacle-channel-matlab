@@ -39,6 +39,8 @@ cfg.diffractionOnlyWhenLoSBlocked = true;
 cfg.diffractionLossCapdB = 200;
 
 cfg.pathGainModel = "friisField";
+cfg.enablePathPruning = true;
+cfg.pathPruningThresholddB = 40;
 cfg.minPathLength = 1e-3;
 cfg.epsGeom = 1e-9;
 cfg.segmentEndpointMargin = 1e-7;
@@ -75,12 +77,19 @@ validateattributes(cfg.fc,{'numeric'},{'scalar','real','positive','finite'});
 validateattributes(cfg.M,{'numeric'},{'scalar','integer','positive'});
 validateattributes(cfg.K,{'numeric'},{'scalar','integer','positive'});
 validateattributes(cfg.N_AP,{'numeric'},{'scalar','integer','positive'});
+validateattributes(cfg.enablePathPruning,{'logical','numeric'},{'scalar'});
+if ~any(cfg.enablePathPruning == [0 1])
+    error('enablePathPruning must be true/false or 1/0.');
+end
+validateattributes(cfg.pathPruningThresholddB,{'numeric'}, ...
+    {'scalar','real','nonnegative','finite'});
 validateattributes(cfg.ulaDirection,{'numeric'},{'vector','numel',3,'real','finite'});
 if norm(cfg.ulaDirection) <= eps
     error('ulaDirection must be a nonzero 3-D vector.');
 end
 
 cfg.lambda = cfg.c/cfg.fc;
+cfg.enablePathPruning = logical(cfg.enablePathPruning);
 if ~arraySpacingWasOverridden || isempty(cfg.arraySpacing)
     cfg.arraySpacing = cfg.lambda/2;
 end

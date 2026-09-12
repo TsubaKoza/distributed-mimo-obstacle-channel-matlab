@@ -26,6 +26,8 @@ cfgRT = configRayTracing3D(struct( ...
     'N_AP',4, ...
     'numObstacles',5, ...
     'fc',100e9, ...
+    'enablePathPruning',true, ...
+    'pathPruningThresholddB',40, ...
     'showFigures',true, ...
     'saveFigures',true, ...
     'saveResults',true));
@@ -44,7 +46,10 @@ rtResult = main_ray_tracing_3D(cfgRT);
 | `rtResult.h_reflection` | `N_AP x M x K` | 全1回反射pathを合成した複素チャネル |
 | `rtResult.h_diffraction` | `N_AP x M x K` | 全1回回折pathを合成した複素チャネル |
 | `rtResult.pathInfo` | `M x K` | 各リンクの直接・反射・回折path詳細 |
-| `rtResult.pathCount` | `M x K` | 各リンクの有効path総数 |
+| `rtResult.pathCount` | `M x K` | 各リンクのpruning後の保持path数 |
+| `rtResult.pathCountBeforePruning` | `M x K` | pruning前の生成path数 |
+| `rtResult.pathCountAfterPruning` | `M x K` | pruning後の保持path数 |
+| `rtResult.strongestPathPowerdB` | `M x K` | 各リンクの最強Ray電力 `[dB]` |
 | `rtResult.linkGainDB` | `M x K` | 合成後チャネル利得 `[dB]` |
 | `rtResult.outageMask` | `M x K` | 有効な伝搬pathが存在しないリンク |
 
@@ -61,6 +66,43 @@ channelTable = inspectRayTracingLink(rtResult,1,1);
 存在しない伝搬種類の列は省略される。Figure 1と同じリンクは、設定値
 `cfgRT.selectedAP`と`cfgRT.selectedUE`で選択できる。通常実行時にはこの
 選択リンクの表が自動表示され、`rtResult.selectedLink.channelTable`にも保存される。
+
+## Ray pruning
+
+既定では、各AP-UEリンク内で最強Rayより40 dB以上弱いRayを、`h_true`への
+複素合成から除外する。リンク間では比較せず、各リンクで独立に最強Rayを決める。
+
+```matlab
+cfgRT.enablePathPruning = true;
+cfgRT.pathPruningThresholddB = 40;
+```
+
+Ray `l`の電力と相対電力は次式で計算する。
+
+```matlab
+pathPower = sum(abs(paths(l).contribution).^2);
+pathPowerdB = 10*log10(pathPower);
+relativePowerdB = 10*log10(pathPower/strongestPathPower);
+```
+
+`relativePowerdB <= -40`のRayを除外し、それより強いRayを合成する。LoS、反射、
+回折の特別扱いは行わない。生成された全Rayは`pathInfo(m,k).paths`に残り、各Rayで
+以下を確認できる。
+
+- `pathPower`
+- `pathPowerdB`
+- `relativePowerdB`
+- `isRetained`
+
+リンク単位の`numPathsBeforePruning`、`numPathsAfterPruning`、
+`strongestPathPowerdB`、`strongestPathIndex`、`strongestPathType`も`pathInfo`に保存する。
+`enablePathPruning=false`では、全Rayを従来どおり複素合成する。
+
+選択リンクのRay一覧表は自動表示され、次にも保存される。
+
+```matlab
+rtResult.selectedLink.pruningTable
+```
 
 ## 伝搬モデル
 
@@ -86,7 +128,7 @@ channelTable = inspectRayTracingLink(rtResult,1,1);
 - entry/config: `main_ray_tracing_3D`, `configRayTracing3D`
 - scenario: `generateScenario3D`, `generateAPPositions3D`, `generateUEPositions3D`, `generateObstacles3D`, `generateAPArrayPositions`
 - geometry: `checkLoS3D`, `isBlocked3D`, `segmentIntersectsCuboid`, `transformToObstacleLocal`, `mirrorPointAcrossPlane`, `linePlaneIntersection`, `pointInsideRectangle3D`
-- propagation: `generateRayTracingChannels3D`, `findSingleBounceReflections3D`, `findSingleEdgeDiffractions3D`, `computeKnifeEdgeDiffractionLoss`, `computePathGain`, `computeAoAAoD3D`, `computeArrayResponse3D`
+- propagation: `generateRayTracingChannels3D`, `pruneRayPaths`, `findSingleBounceReflections3D`, `findSingleEdgeDiffractions3D`, `computeKnifeEdgeDiffractionLoss`, `computePathGain`, `computeAoAAoD3D`, `computeArrayResponse3D`
 - inspection/plot: `inspectRayTracingLink`, `plotScenario3D`, `plotRayTracingChannelGainHeatmap`, `plotRayTracingPathCount`
 - verification: `runRayTracingSanityChecks`, `reportToolboxes`
 
